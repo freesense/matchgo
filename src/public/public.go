@@ -21,15 +21,15 @@ func (t CcyflowType) String() string {
 	case 3:
 		return "CZ" // 资金冲正
 	case 4:
-		return "OUTSIDE" // 充提币
+		return "OUT" // 充提币
 	case 5:
 		return "OUTFEE" // 充提币手续费
 	case 6:
-		return "TRANSFER" // 币币法币互转
+		return "TRAN" // 币币法币互转
 	case 7:
 		return "FAKE" // 资产注水
 	case 8:
-		return "BONUS" // 糖果
+		return "BONU" // 糖果
 	case 9:
 		return "FEEBACK" // 返佣
 	default:
