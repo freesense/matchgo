@@ -100,6 +100,7 @@ type Order struct {
 	Otype, Symbol_id, User_id  uint32
 }
 
+// External Request
 type OrderRequest struct {
 	User_id, Symbol, Reference, Otype uint32
 	Price, Qty                        string
