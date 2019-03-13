@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -20,7 +19,7 @@ import (
 
 var url_verify string
 var maxtick int
-var GetPosition *redis.Script
+var GetPosition, OnOrder *redis.Script
 var l net.Listener
 
 var upgrader = websocket.Upgrader{
@@ -390,7 +389,7 @@ func loop_push() {
 
 	var err error
 
-	err = decryptlua()
+	err = load_lua()
 	if err != nil {
 		return
 	}
@@ -1069,18 +1068,16 @@ func get_snapshot(c *Client, req *PushRequest) (obj *SnapShot, err error) {
 	return
 }
 
-func decryptlua() error {
-	decodeBytes, err := base64.StdEncoding.DecodeString(script_getposition)
-	if HasError(err) {
-		return err
-	}
-	for i, _ := range decodeBytes {
-		decodeBytes[i] ^= factor
-	}
-
+func load_lua() (err error) {
+	var c string
 	rds := rdw.Get()
 	defer rds.Close()
 
-	GetPosition = redis.NewScript(0, string(decodeBytes))
-	return nil
+	c, err = Decryptlua(factor, script_getposition)
+	if HasError(err) {
+		return
+	}
+	GetPosition = redis.NewScript(0, c)
+
+	return
 }

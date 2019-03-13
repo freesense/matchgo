@@ -1,6 +1,7 @@
 package public
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"os"
@@ -221,4 +222,17 @@ func Min(x, y decimal.Decimal) decimal.Decimal {
 // 时间格式转换：yyyymmddthhmmss -> yyyy-mm-dd hh:mm:ss
 func ConvertDT(tag string) string {
 	return tag[0:4] + "-" + tag[4:6] + "-" + tag[6:8] + " " + tag[9:11] + ":" + tag[11:13] + ":" + tag[13:15]
+}
+
+func Decryptlua(factor byte, c string) (decoded string, err error) {
+	decodeBytes, err := base64.StdEncoding.DecodeString(c)
+	if HasError(err) {
+		return "", err
+	}
+	for i, _ := range decodeBytes {
+		decodeBytes[i] ^= factor
+	}
+
+	decoded = string(decodeBytes)
+	return
 }

@@ -283,7 +283,7 @@ type Answer struct {
 ``` json
 {
 	"errcode": 0,
-	"errmsg": "success",
+	"errmsg": "success"
 }
 ```
 
@@ -296,7 +296,8 @@ type Answer struct {
 ``` json
 {
 	"errcode": 0,
-	"errmsg": "success",
+	"errmsg": "success"
+}
 ```
 
 ### 开始收单
@@ -308,5 +309,6 @@ type Answer struct {
 ``` json
 {
 	"errcode": 0,
-	"errmsg": "success",
+	"errmsg": "success"
+}
 ```
