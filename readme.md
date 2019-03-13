@@ -44,7 +44,7 @@ key name | type | description |
 oid_generator | string | 委托编号发生器 |
 bid_generator | string | 成交编号发生器 |
 fid_generator | string | 资金流水编号发生器 |
-trading | string | 正常交易标志<li>1 不可交易<li>nil or else 不可交易
+trading | string | 正常交易标志<li>not 不可交易<li>nil or else 可交易
 asset.[acc].[ccy] | hash | 客户资产<li>balance 余额<li>frozen 冻结数 |
 consign.[acc].[oid] | hash | 委托单<li>time 委托时间<li>type 委托类型<li>channel 委托渠道<li>symbol 交易币<li>reference 参考币<li>price 委托价格<li>qty 委托数量<li>status 委托状态<li>deal_qty 成交数量<li>deal_amount 成交金额 |
 bargain.oid.[oid] | list | 单个委托单的全部成交编号 |
@@ -78,14 +78,14 @@ ZMQ.REQ-REP
 
 ``` go
 type OrderRequest struct {
-	User_id, Symbol, Reference, Otype uint32
-	Price, Qty                        string
-	Related_id                        uint64
+	User_id, Symbol, Reference, Otype, Channel uint32
+	Price, Qty, Language               		   string
+	Related_id                        		   uint64
 }
 
 type Answer struct {
 	Errno      int
-	errmsg     string
+	Errmsg     string
 	Consign_id uint64
 	Status     int
 }
