@@ -29,6 +29,4 @@ bm/
 sshTunnel.go
 
 script.h
-script.go
 version.h
-version.go
