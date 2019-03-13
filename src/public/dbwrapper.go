@@ -1618,9 +1618,8 @@ func CheckOrder(rdw *RDSWrapper, db *sql.DB, dbname string, ord *_order, checkfi
 		return
 	}
 
-	rds := rdw.Get()
-	if _, err := rds.Do("SELECT", "7"); HasError(err) {
-		rds.Close()
+	rds := rdw.Get(7)
+	if rds == nil {
 		return
 	}
 	found, err := redis.Bool(rds.Do("SISMEMBER", "order_ok", ord.oid))
@@ -1998,11 +1997,11 @@ func CheckOrder(rdw *RDSWrapper, db *sql.DB, dbname string, ord *_order, checkfi
 	}
 
 	if allok {
-		rds := rdw.Get()
-		defer rds.Close()
-		if _, err := rds.Do("SELECT", "7"); HasError(err) {
+		rds := rdw.Get(7)
+		if rds == nil {
 			return
 		}
+		defer rds.Close()
 		if _, err := rds.Do("SADD", "order_ok", ord.oid); HasError(err) {
 			return
 		}

@@ -26,7 +26,10 @@ func Msgpost(obj *Tick) {
 		if obj.Oid_activated == 0 { // 撤单成交
 			if obj.Activate_type == 0x06 { // cancel all
 				push := func(consignid uint64, usrid, status uint32) {
-					rds := rdw.Get()
+					rds := rdw.Get(0)
+					if rds == nil {
+						return
+					}
 					defer rds.Close()
 					_, err = rds.Do("publish", fmt.Sprintf("orderstatus.%d", usrid), fmt.Sprintf("%d.%d", consignid, status))
 					HasError(err)
@@ -85,7 +88,10 @@ func Msgpost(obj *Tick) {
 	dbw.Settle(settleAid)
 	dbw.Settle(settlePid)
 
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return
+	}
 	defer rds.Close()
 	if aid != 0 {
 		_, err = rds.Do("publish", fmt.Sprintf("orderstatus.%d", auser), fmt.Sprintf("%d.%d", aid, astatus))

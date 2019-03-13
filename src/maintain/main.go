@@ -204,7 +204,10 @@ func transferQuote(hispath string, qok chan int) {
 
 	day := time.Now().AddDate(0, -1, 0).Format("20060102")
 
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return
+	}
 	defer rds.Close()
 
 	prepareSqlite := func(symbol string) (db *sql.DB, err error) {
@@ -420,22 +423,22 @@ func checkAccount(usrid uint, update, checkfix bool) {
 	isSingle := true
 
 	addChecked := func(usrid uint32) {
-		rds := rdw.Get()
-		defer rds.Close()
-		if _, err := rds.Do("SELECT", "7"); HasError(err) {
+		rds := rdw.Get(7)
+		if rds == nil {
 			return
 		}
+		defer rds.Close()
 		if _, err := rds.Do("SADD", "checked", usrid); HasError(err) {
 			return
 		}
 	}
 
 	getSkipped := func() (skip map[uint32]bool) {
-		rds := rdw.Get()
-		defer rds.Close()
-		if _, err := rds.Do("SELECT", "7"); HasError(err) {
+		rds := rdw.Get(7)
+		if rds == nil {
 			return
 		}
+		defer rds.Close()
 		skip = make(map[uint32]bool)
 		data, err := redis.Strings(rds.Do("SMEMBERS", "skipped"))
 		if HasError(err) {
@@ -525,11 +528,11 @@ func checkAccount(usrid uint, update, checkfix bool) {
 				Printf("bonus = %v\n", bonus)
 			}
 
-			rds := rdw.Get()
-			defer rds.Close()
-			if _, err = rds.Do("SELECT", "6"); HasError(err) {
+			rds := rdw.Get(6)
+			if rds == nil {
 				return
 			}
+			defer rds.Close()
 
 			for ccy, e := range oldAssets {
 				if e[0] == 0 && e[1] == 0 {
@@ -653,11 +656,11 @@ func checkAccount(usrid uint, update, checkfix bool) {
 		}
 	}
 
-	rds := rdw.Get()
-	defer rds.Close()
-	if _, err := rds.Do("SELECT", "6"); HasError(err) {
+	rds := rdw.Get(6)
+	if rds == nil {
 		return
 	}
+	defer rds.Close()
 	if _, err := rds.Do("FLUSHDB"); HasError(err) {
 		return
 	}
@@ -703,7 +706,10 @@ func rebuildOrder() {
 		return
 	}
 
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return
+	}
 	defer rds.Close()
 
 	v, err := redis.Strings(rds.Do("keys", "bars.*"))

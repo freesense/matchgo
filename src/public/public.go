@@ -103,9 +103,9 @@ type Order struct {
 
 // External Request
 type OrderRequest struct {
-	User_id, Symbol, Reference, Otype uint32
-	Price, Qty                        string
-	Related_id                        uint64
+	User_id, Symbol, Reference, Otype, Channel uint32
+	Price, Qty, Language                       string
+	Related_id                                 uint64
 }
 
 func IsBuy(otype uint32) bool {

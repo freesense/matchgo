@@ -45,7 +45,10 @@ func Msgfromcore(msg string) {
 
 	if consign_id > 0 {
 		_ = dbw.Ord_queued(uint64(consign_id))
-		rds := rdw.Get()
+		rds := rdw.Get(0)
+		if rds == nil {
+			return
+		}
 		defer rds.Close()
 		rds.Do("publish", fmt.Sprintf("orderstatus.%d", user_id), fmt.Sprintf("%d.%d", consign_id, Queued))
 	}
@@ -56,80 +59,80 @@ func Msgfromweb(hubClient *zmq.Socket, msg []byte) (ord *Order, req *OrderReques
 	if HasError(err) {
 		return
 	}
-
-	if req.User_id == 0 { // special maintain request
-		var comment string
-		ord = &Order{}
-		ord.Otype = req.Otype
-		switch req.Otype {
-		case 1:
-			comment = "dump symbol"
-			ord.Symbol_id = req.Symbol
-		case 2:
-			comment = "cancel all"
-		case 3:
-			comment = "quit"
-		case 4:
-			comment = "stop order receiver"
-			atomic.StoreInt32(&stopflag, 1)
-		case 5:
-			comment = "start order receiver"
-			atomic.StoreInt32(&stopflag, 0)
-		case 6:
-			comment = "get position"
-			stop = 1
-			type CoinAsset struct {
-				Ccy, Usable, Frozen string
-			}
-			type AllPosition struct {
-				Errno  int
-				Errmsg string
-				Assets []CoinAsset
-			}
-			position, err := dbw.GetPosition(uint32(req.Related_id))
-			ans := &AllPosition{}
-			if err != nil {
-				ans.Errno = -1
-				ans.Errmsg = err.Error()
-			} else {
-				for ccy, p := range position {
-					ans.Assets = append(ans.Assets, CoinAsset{ccy, Uint64DivString(p[0]), Uint64DivString(p[1])})
+	/*
+		if req.User_id == 0 { // special maintain request
+			var comment string
+			ord = &Order{}
+			ord.Otype = req.Otype
+			switch req.Otype {
+			case 1:
+				comment = "dump symbol"
+				ord.Symbol_id = req.Symbol
+			case 2:
+				comment = "cancel all"
+			case 3:
+				comment = "quit"
+			case 4:
+				comment = "stop order receiver"
+				atomic.StoreInt32(&stopflag, 1)
+			case 5:
+				comment = "start order receiver"
+				atomic.StoreInt32(&stopflag, 0)
+			case 6:
+				comment = "get position"
+				stop = 1
+				type CoinAsset struct {
+					Ccy, Usable, Frozen string
 				}
+				type AllPosition struct {
+					Errno  int
+					Errmsg string
+					Assets []CoinAsset
+				}
+				position, err := dbw.GetPosition(uint32(req.Related_id))
+				ans := &AllPosition{}
+				if err != nil {
+					ans.Errno = -1
+					ans.Errmsg = err.Error()
+				} else {
+					for ccy, p := range position {
+						ans.Assets = append(ans.Assets, CoinAsset{ccy, Uint64DivString(p[0]), Uint64DivString(p[1])})
+					}
+				}
+				rsp, err := json.Marshal(ans)
+				if !HasError(err) {
+					_, err = hubClient.SendBytes(rsp, 0)
+					HasError(err)
+				}
+			default:
+				err = BuildError(true, "unknown maintain type: %d", req.Otype)
+				return
 			}
-			rsp, err := json.Marshal(ans)
-			if !HasError(err) {
-				_, err = hubClient.SendBytes(rsp, 0)
-				HasError(err)
+			if stop == 0 {
+				err = BuildError(true, comment)
 			}
-		default:
-			err = BuildError(true, "unknown maintain type: %d", req.Otype)
-			return
-		}
-		if stop == 0 {
-			err = BuildError(true, comment)
-		}
-	} else if atomic.LoadInt32(&stopflag) == 1 {
-		err = BuildError(false, "maintaining")
-	} else if req.Otype == OtypeFundChg { // 资金流水
-		// related_id: business_id
-		// Price: balance
-		// Qty: frozen
-		// Symbol: ccy
-		// Reference: summary
-		if req.Symbol == 0 || req.Reference == 0 {
-			err = BuildError(true, "invalid request")
-			return
-		}
-		if err = dbw.OnCcyflow(req); err != nil {
-			return
-		}
-	} else {
-		if (req.Otype & 0x02) != 0 { // 撤单委托
-			ord, err = Docancel(req)
-		} else { // 正常委托
-			ord, err = Donormal(req)
-		}
+		} else if atomic.LoadInt32(&stopflag) == 1 {
+			err = BuildError(false, "maintaining")
+		} else if req.Otype == OtypeFundChg { // 资金流水
+			// related_id: business_id
+			// Price: balance
+			// Qty: frozen
+			// Symbol: ccy
+			// Reference: summary
+			if req.Symbol == 0 || req.Reference == 0 {
+				err = BuildError(true, "invalid request")
+				return
+			}
+			if err = dbw.OnCcyflow(req); err != nil {
+				return
+			}
+		} else {*/
+	if (req.Otype & 0x02) != 0 { // 撤单委托
+		ord, err = Docancel(req)
+	} else { // 正常委托
+		ord, err = Donormal(req)
 	}
+	//	}
 
 	return
 }
@@ -188,7 +191,6 @@ func Donormal(req *OrderRequest) (ord *Order, err error) {
 	if req.User_id == 0 {
 		consign_id = 0
 	} else {
-		flag := true
 		iPrice, err = StringMulUint64(req.Price)
 		if HasError(err) {
 			return
@@ -203,7 +205,10 @@ func Donormal(req *OrderRequest) (ord *Order, err error) {
 		}
 
 		if PriceRangeCheck {
-			rds := rdw.Get()
+			rds := rdw.Get(0)
+			if rds == nil {
+				return
+			}
 			defer rds.Close()
 			var latest string
 			latest, err = redis.String(rds.Do("get", fmt.Sprintf("latest.%d", symbolid)))
@@ -234,16 +239,9 @@ func Donormal(req *OrderRequest) (ord *Order, err error) {
 			}
 		}
 
-		for {
-			consign_id, err = dbw.Add_order(req, iPrice, iQty)
-			if err == nil {
-				if flag == false {
-					Println("Add_order OK.")
-				}
-				break
-			} else {
-				flag = false
-			}
+		consign_id, err = rdw.Add_order(req, iPrice, iQty)
+		if err != nil {
+			return
 		}
 	}
 
@@ -257,7 +255,10 @@ func Docheck(req *OrderRequest, consign_id uint64) bool {
 	}
 
 	ret := dbw.CheckConsign(req, consign_id)
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return false
+	}
 	defer rds.Close()
 
 	if ret {
@@ -339,7 +340,10 @@ func worker() {
 						// 订单购买力检查
 						ok := Docheck(req, ord.Oid)
 						if !ok {
-							rds := rdw.Get()
+							rds := rdw.Get(0)
+							if rds == nil {
+								return
+							}
 							defer rds.Close()
 							rds.Do("publish", fmt.Sprintf("orderstatus.%d", ord.User_id), fmt.Sprintf("%d.%d", ord.Oid, Rejected))
 						} else { // send to core

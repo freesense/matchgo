@@ -39,6 +39,9 @@
 
 ## Redis Key Define
 
+- 行情库 select 0
+- 交易库 select 1
+
 key name | type | description |
 ---------|------|-------------|
 oid_generator | string | 委托编号发生器 |

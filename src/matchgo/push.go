@@ -604,7 +604,10 @@ func get_histick(c *Client, req *PushRequest) (obj *HisTick, err error) {
 		return
 	}
 
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return
+	}
 	defer rds.Close()
 
 	obj = &HisTick{Topic: "histick", Symbol: req.Symbol}
@@ -646,7 +649,10 @@ func get_position(c *Client, req *PushRequest) (obj *Position, err error) {
 		req.Depth = 20
 	}
 
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return
+	}
 	defer rds.Close()
 
 	x, err := redis.Strings(GetPosition.Do(rds, sid, req.Depth))
@@ -775,7 +781,10 @@ func build_mink(sid uint32, from, to uint64, period int, obj *K) error {
 		return BuildError(true, "Invalid period: %d", period)
 	}
 
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return BuildError(false, "redis connection not available")
+	}
 	defer rds.Close()
 	mins, err := redis.Int64s(rds.Do("smembers", fmt.Sprintf("min.%d", sid)))
 	if HasError(err) {
@@ -885,7 +894,10 @@ func build_mink(sid uint32, from, to uint64, period int, obj *K) error {
 }
 
 func build_week(sid uint32, from, to uint64, period int, obj *K) error {
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return BuildError(false, "redis connection not avaliable")
+	}
 	defer rds.Close()
 	days, err := redis.Ints(rds.Do("smembers", fmt.Sprintf("day.%d", sid)))
 	if HasError(err) {
@@ -959,7 +971,10 @@ func build_week(sid uint32, from, to uint64, period int, obj *K) error {
 }
 
 func build_dayk(sid uint32, from, to uint64, period int, obj *K) error {
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return BuildError(false, "redis connection not available")
+	}
 	defer rds.Close()
 	days, err := redis.Ints(rds.Do("smembers", fmt.Sprintf("day.%d", sid)))
 	if HasError(err) {
@@ -1021,7 +1036,10 @@ func get_snapshot(c *Client, req *PushRequest) (obj *SnapShot, err error) {
 	var mdata map[string]string
 	var open, high, low, close, qty string
 
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return
+	}
 	defer rds.Close()
 
 	for _, sid := range sub {
@@ -1070,7 +1088,10 @@ func get_snapshot(c *Client, req *PushRequest) (obj *SnapShot, err error) {
 
 func load_lua() (err error) {
 	var c string
-	rds := rdw.Get()
+	rds := rdw.Get(0)
+	if rds == nil {
+		return
+	}
 	defer rds.Close()
 
 	c, err = Decryptlua(factor, script_getposition)
