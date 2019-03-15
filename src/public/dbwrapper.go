@@ -279,7 +279,7 @@ func (self *DbWrapper) Ord_queued(oid uint64) (err error) {
 
 	var status int32
 	if ok := rows.Next(); !ok {
-		err = BuildError(true, "consign %d not found", oid)
+		err = BuildError(true, false, "consign %d not found", oid)
 		return
 	}
 	if err = rows.Scan(&status); HasError(err) {
@@ -302,7 +302,7 @@ func (self *DbWrapper) Add_cancel(user_id uint32, relate_id uint64) (consign_id 
 	var cnt int64
 
 	if relate_id == 0 { // cancel all
-		err = BuildError(true, "Cancel all not supported")
+		err = BuildError(true, false, "Cancel all not supported")
 		return
 		//res, err = self.db.Exec("insert consign(consign_dt,user_id,consign_type,related_id) select current_timestamp(),?,2,0 from dual where (select count(*) from consign where related_id=0 and user_id=? and consign_type=2 and `status` in (1,2,3,4))=0", user_id, user_id)
 	}
@@ -336,7 +336,7 @@ func (self *DbWrapper) Add_cancel(user_id uint32, relate_id uint64) (consign_id 
 		return
 	}
 	if cnt == 0 {
-		err = BuildError(false, "user %d cancel repeat: %d", user_id, relate_id)
+		err = BuildError(false, false, "user %d cancel repeat: %d", user_id, relate_id)
 		return
 	}
 
@@ -430,7 +430,7 @@ func (self *DbWrapper) CheckConsign(req *OrderRequest, consign_id uint64) (ok bo
 		}
 
 		if existing_cancel_all != 0 {
-			err = BuildError(true, "cancelling all")
+			err = BuildError(true, false, "cancelling all")
 			return
 		}*/
 
@@ -639,7 +639,7 @@ func (self *DbWrapper) inCcyflow(tx *sql.Tx, frozen /*委托冻结数量*/, pric
 			defer rows.Close()
 
 			if ok = rows.Next(); !ok {
-				err = BuildError(true, "coin %d feerate not supported", symbol)
+				err = BuildError(true, false, "coin %d feerate not supported", symbol)
 				return
 			}
 			if err = rows.Err(); HasError(err) {
@@ -941,7 +941,7 @@ func (self *DbWrapper) On_market_finished(obj *Tick) (auser uint32, astatus uint
 
 	if ok := rows.Next(); !ok {
 		tx.Rollback()
-		err = BuildError(true, "consign %d not found", obj.Oid_activated)
+		err = BuildError(true, false, "consign %d not found", obj.Oid_activated)
 		return
 	}
 
@@ -1051,7 +1051,7 @@ func (dbw *DbWrapper) Settle(oid uint64) (err error) {
 		err = tx.QueryRow("select frozen from jys_position where user_id=? and ccy=? for update", v.usrid, v.ccy).Scan(&frozen)
 		if err == nil {
 			if frozen < int64(math.Abs(float64(v.frozen))) {
-				err = BuildError(true, "warning: oid=%v, invalid frozen=%v/%v", oid, v.frozen, frozen)
+				err = BuildError(true, false, "warning: oid=%v, invalid frozen=%v/%v", oid, v.frozen, frozen)
 				return
 			}
 			result, err = tx.Exec("update jys_position set balance=balance+?,frozen=frozen+? where user_id=? and ccy=?", v.balance, v.frozen, v.usrid, v.ccy)
@@ -1071,7 +1071,7 @@ func (dbw *DbWrapper) Settle(oid uint64) (err error) {
 			return
 		}
 		if affected == 0 {
-			err = BuildError(true, "update position failed, oid=%v", oid)
+			err = BuildError(true, false, "update position failed, oid=%v", oid)
 			return
 		}
 	}

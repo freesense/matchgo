@@ -12,17 +12,19 @@ import (
 	"sync/atomic"
 
 	"github.com/garyburd/redigo/redis"
-
 	"github.com/json-iterator/go"
 	zmq "github.com/pebbe/zmq4"
 )
 
-var json = jsoniter.ConfigCompatibleWithStandardLibrary
+var qjson = jsoniter.ConfigCompatibleWithStandardLibrary
 var sWorkerCount sync.WaitGroup
 var stopflag int32
 var max_price, max_qty uint64 // 允许下单的最大价格和最大数量，防止溢出
 var PriceRangeCheck bool
 var PriceRange float64
+var CheckOrderScript *redis.Script
+
+var ERR_INVALID_SYMBOL = NewMyError("consign_id: %v, invalid symbol%d/%d", "委托单: %v, 无效symbol: %d/%d")
 
 type Answer struct {
 	Errno      int
@@ -54,8 +56,8 @@ func Msgfromcore(msg string) {
 	}
 }
 
-func Msgfromweb(hubClient *zmq.Socket, msg []byte) (ord *Order, req *OrderRequest, stop int, err error) {
-	err = json.Unmarshal(msg, &req)
+func Msgfromweb(hubClient *zmq.Socket, msg []byte) (ord *Order, req *OrderRequest, err error) {
+	err = qjson.Unmarshal(msg, &req)
 	if HasError(err) {
 		return
 	}
@@ -99,20 +101,20 @@ func Msgfromweb(hubClient *zmq.Socket, msg []byte) (ord *Order, req *OrderReques
 						ans.Assets = append(ans.Assets, CoinAsset{ccy, Uint64DivString(p[0]), Uint64DivString(p[1])})
 					}
 				}
-				rsp, err := json.Marshal(ans)
+				rsp, err := qjson.Marshal(ans)
 				if !HasError(err) {
 					_, err = hubClient.SendBytes(rsp, 0)
 					HasError(err)
 				}
 			default:
-				err = BuildError(true, "unknown maintain type: %d", req.Otype)
+				err = BuildError(true, false, "unknown maintain type: %d", req.Otype)
 				return
 			}
 			if stop == 0 {
-				err = BuildError(true, comment)
+				err = BuildError(true, false, comment)
 			}
 		} else if atomic.LoadInt32(&stopflag) == 1 {
-			err = BuildError(false, "maintaining")
+			err = BuildError(false, false, "maintaining")
 		} else if req.Otype == OtypeFundChg { // 资金流水
 			// related_id: business_id
 			// Price: balance
@@ -120,7 +122,7 @@ func Msgfromweb(hubClient *zmq.Socket, msg []byte) (ord *Order, req *OrderReques
 			// Symbol: ccy
 			// Reference: summary
 			if req.Symbol == 0 || req.Reference == 0 {
-				err = BuildError(true, "invalid request")
+				err = BuildError(true, false, "invalid request")
 				return
 			}
 			if err = dbw.OnCcyflow(req); err != nil {
@@ -160,7 +162,7 @@ func Docancel(req *OrderRequest) (ord *Order, err error) {
 	if req.Related_id != 0 {
 		sid, ok = dbw.Get_symbolid_from_id(fmt.Sprintf("%d/%d", symbol, reference))
 		if !ok {
-			err = BuildError(true, "invalid symbol: %d/%d, consign_id: %v", symbol, reference, req.Related_id)
+			err = ShowError(ERR_INVALID_SYMBOL.Build(req.Language, symbol, reference, req.Related_id))
 			return
 		}
 	}
@@ -175,14 +177,14 @@ func Donormal(req *OrderRequest) (ord *Order, err error) {
 	}
 
 	if req.Symbol == 0 || req.Reference == 0 {
-		err = BuildError(true, "invalid request")
+		err = ShowError(ERR_INVALID_SYMBOL.Build(req.Language, req.Symbol, req.Reference, 0))
 		return
 	}
 
 	var symbolid uint32
 	var ok bool
 	if symbolid, ok = dbw.Get_symbolid_from_id(fmt.Sprintf("%d/%d", req.Symbol, req.Reference)); !ok {
-		err = BuildError(true, "invalid trading-pair: %d/%d", req.Symbol, req.Reference)
+		err = ShowError(ERR_INVALID_SYMBOL.Build(req.Language, req.Symbol, req.Reference, 0))
 		return
 	}
 
@@ -200,7 +202,7 @@ func Donormal(req *OrderRequest) (ord *Order, err error) {
 			return
 		}
 		if iPrice > max_price || iQty > max_qty || iQty == 0 {
-			err = BuildError(false, "invalid price or qty")
+			err = BuildError(false, false, "invalid price or qty")
 			return
 		}
 
@@ -225,13 +227,13 @@ func Donormal(req *OrderRequest) (ord *Order, err error) {
 					if req.Otype&0x01 > 0 {
 						minbound := uint64(math.Floor(float64(_latest)*(1-PriceRange) + 0.5))
 						if iPrice < minbound {
-							err = BuildError(true, "price exceed valid range")
+							err = BuildError(true, false, "price exceed valid range")
 							return
 						}
 					} else {
 						maxbound := uint64(math.Floor(float64(_latest)*(1+PriceRange) + 0.5))
 						if iPrice > maxbound {
-							err = BuildError(true, "price exceed valid range")
+							err = BuildError(true, false, "price exceed valid range")
 							return
 						}
 					}
@@ -318,10 +320,7 @@ func worker() {
 				msg, err := hubClient.RecvBytes(0)
 
 				if !HasError(err) {
-					ord, req, stop, err := Msgfromweb(hubClient, msg)
-					if stop == 1 {
-						break
-					}
+					ord, req, err := Msgfromweb(hubClient, msg)
 					if err != nil {
 						ans.Errno = -1
 						ans.Errmsg = err.Error()
@@ -330,7 +329,7 @@ func worker() {
 						ans.Status = Submitted
 					}
 
-					rsp, err := json.Marshal(ans)
+					rsp, err := qjson.Marshal(ans)
 					if !HasError(err) {
 						_, err = hubClient.SendBytes(rsp, 0)
 						HasError(err)
@@ -377,6 +376,12 @@ func loop_pre() {
 		Println(">>> Pre finished.")
 		wg.Done()
 	}()
+
+	c, err := Decryptlua(factor, script_onorder)
+	if HasError(err) {
+		return
+	}
+	CheckOrderScript = redis.NewScript(0, c)
 
 	tmp, err := cfg.String("pre", "floating_price")
 	if err == nil {

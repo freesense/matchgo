@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -19,7 +20,7 @@ import (
 
 var url_verify string
 var maxtick int
-var GetPosition, OnOrder *redis.Script
+var GetPosition *redis.Script
 var l net.Listener
 
 var upgrader = websocket.Upgrader{
@@ -600,7 +601,7 @@ func get_histick(c *Client, req *PushRequest) (obj *HisTick, err error) {
 	var sid uint32
 	var ok bool
 	if sid, ok = dbw.Get_symbolid_from_name(req.Symbol); !ok {
-		err = BuildError(true, "invalid symbol: %s", req.Symbol)
+		err = BuildError(true, false, "invalid symbol: %s", req.Symbol)
 		return
 	}
 
@@ -641,7 +642,7 @@ func get_position(c *Client, req *PushRequest) (obj *Position, err error) {
 	var sid uint32
 	var ok bool
 	if sid, ok = dbw.Get_symbolid_from_name(req.Symbol); !ok {
-		err = BuildError(true, "invalid symbol: %s", req.Symbol)
+		err = BuildError(true, false, "invalid symbol: %s", req.Symbol)
 		return
 	}
 
@@ -721,7 +722,7 @@ func get_k(c *Client, req *PushRequest) (obj *K, err error) {
 	var sid uint32
 	var ok bool
 	if sid, ok = dbw.Get_symbolid_from_name(req.Symbol); !ok {
-		err = BuildError(true, "invalid symbol: %s", req.Symbol)
+		err = BuildError(true, false, "invalid symbol: %s", req.Symbol)
 		return
 	}
 
@@ -730,7 +731,7 @@ func get_k(c *Client, req *PushRequest) (obj *K, err error) {
 	}
 
 	if len(req.From) == 0 || len(req.To) == 0 {
-		err = BuildError(true, "invalid from/to")
+		err = BuildError(true, false, "invalid from/to")
 		return
 	}
 
@@ -745,7 +746,7 @@ func get_k(c *Client, req *PushRequest) (obj *K, err error) {
 	}
 
 	if req.From > req.To {
-		err = BuildError(true, "invalid from/to")
+		err = BuildError(true, false, "invalid from/to")
 		return
 	}
 
@@ -764,7 +765,7 @@ func get_k(c *Client, req *PushRequest) (obj *K, err error) {
 	case "w":
 		err = build_week(sid, from, to, _period, obj)
 	default:
-		err = BuildError(true, "unknown k type: %s", _type)
+		err = BuildError(true, false, "unknown k type: %s", _type)
 	}
 
 	return
@@ -778,12 +779,12 @@ func (p Int64Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func build_mink(sid uint32, from, to uint64, period int, obj *K) error {
 	if period >= 1440 || period <= 0 {
-		return BuildError(true, "Invalid period: %d", period)
+		return BuildError(true, false, "Invalid period: %d", period)
 	}
 
 	rds := rdw.Get(0)
 	if rds == nil {
-		return BuildError(false, "redis connection not available")
+		return BuildError(false, false, "redis connection not available")
 	}
 	defer rds.Close()
 	mins, err := redis.Int64s(rds.Do("smembers", fmt.Sprintf("min.%d", sid)))
@@ -896,7 +897,7 @@ func build_mink(sid uint32, from, to uint64, period int, obj *K) error {
 func build_week(sid uint32, from, to uint64, period int, obj *K) error {
 	rds := rdw.Get(0)
 	if rds == nil {
-		return BuildError(false, "redis connection not avaliable")
+		return BuildError(false, false, "redis connection not avaliable")
 	}
 	defer rds.Close()
 	days, err := redis.Ints(rds.Do("smembers", fmt.Sprintf("day.%d", sid)))
@@ -973,7 +974,7 @@ func build_week(sid uint32, from, to uint64, period int, obj *K) error {
 func build_dayk(sid uint32, from, to uint64, period int, obj *K) error {
 	rds := rdw.Get(0)
 	if rds == nil {
-		return BuildError(false, "redis connection not available")
+		return BuildError(false, false, "redis connection not available")
 	}
 	defer rds.Close()
 	days, err := redis.Ints(rds.Do("smembers", fmt.Sprintf("day.%d", sid)))
