@@ -8,6 +8,8 @@ import (
 	"github.com/larspensjo/config"
 )
 
+var ERR_RDS_CONN = NewMyError("redis connector failed: db[%d]", "无法获得redis连接: db[%d]")
+
 type RDSWrapper struct {
 	pool    *redis.Pool
 	host    string
@@ -116,4 +118,14 @@ func (self *RDSWrapper) Add_order(ord *OrderRequest, iPrice, iQty uint64) (consi
 	}
 
 	return
+}
+
+func (self *RDSWrapper) CheckConsign(req *OrderRequest, consign_id uint64) (ok bool) {
+	rds := self.Get(1)
+	if rds == nil {
+		return
+	}
+	defer rds.Close()
+
+	return true
 }

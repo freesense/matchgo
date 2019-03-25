@@ -22,7 +22,7 @@ var stopflag int32
 var max_price, max_qty uint64 // 允许下单的最大价格和最大数量，防止溢出
 var PriceRangeCheck bool
 var PriceRange float64
-var CheckOrderScript *redis.Script
+var ScriptCheckOrder *redis.Script
 
 var ERR_INVALID_SYMBOL = NewMyError("consign_id: %v, invalid symbol%d/%d", "委托单: %v, 无效symbol: %d/%d")
 
@@ -31,6 +31,23 @@ type Answer struct {
 	Errmsg     string
 	Consign_id uint64
 	Status     int
+}
+
+func InitScript(rdw *RDSWrapper) (err error) {
+	var c string
+	rds := rdw.Get(1)
+	if rds == nil {
+		return ShowError(ERR_RDS_CONN.Build("en", 1))
+	}
+	defer rds.Close()
+
+	c, err = Decryptlua(factor, script_checkorder)
+	if HasError(err) {
+		return
+	}
+	ScriptCheckOrder = redis.NewScript(0, c)
+
+	return nil
 }
 
 func Msgfromcore(msg string) {
@@ -377,11 +394,9 @@ func loop_pre() {
 		wg.Done()
 	}()
 
-	c, err := Decryptlua(factor, script_onorder)
-	if HasError(err) {
+	if err := InitScript(rdw); err != nil {
 		return
 	}
-	CheckOrderScript = redis.NewScript(0, c)
 
 	tmp, err := cfg.String("pre", "floating_price")
 	if err == nil {
