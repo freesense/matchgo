@@ -2607,6 +2607,39 @@ func (self *DbWrapper) OnCcyflow(req *OrderRequest) (err error) {
 	return
 }
 
+func (self *DbWrapper) LoadAsset(uid uint32, rds redis.Conn) (err error) {
+	tx, err := self.db.Begin()
+	if HasError(err) {
+		return
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
+		}
+	}()
+
+	rows, err := tx.Query("select ccy,balance,frozen from jys_position where user_id=? for update", uid)
+	if HasError(err) {
+		return
+	}
+	defer rows.Close()
+
+	var ccy uint32
+	var balance, frozen uint64
+	for rows.Next() {
+		if err = rows.Scan(&ccy, &balance, &frozen); HasError(err) {
+			return
+		}
+		if _, err = redis.String(rds.Do("HMSET", fmt.Sprintf("asset.%d.%d", uid, ccy), "balance", balance, "frozen", frozen)); HasError(err) {
+			return
+		}
+	}
+
+	return
+}
+
 /* cancel all
 create table orders(
 	consign_id bigint unsigned not null,

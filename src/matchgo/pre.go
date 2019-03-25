@@ -10,10 +10,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/json-iterator/go"
 	zmq "github.com/pebbe/zmq4"
+	"github.com/shopspring/decimal"
 )
 
 var qjson = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -25,6 +27,9 @@ var PriceRange float64
 var ScriptCheckOrder *redis.Script
 
 var ERR_INVALID_SYMBOL = NewMyError("consign_id: %v, invalid symbol%d/%d", "委托单: %v, 无效symbol: %d/%d")
+var ERR_MAINTAINING = NewMyError("OID[%v]: system maintaining, try later", "OID[%v]: 系统维护中，请稍后再试")
+var ERR_CHECKING = NewMyError("OID[%v]: account checking, try later", "OID[%v]: 用户正在对账，请稍后再试")
+var ERR_INSUFFICIENT_ASSET = NewMyError("OID[%v]: insufficient asset", "OID[%v]: 用户资产不足")
 
 type Answer struct {
 	Errno      int
@@ -273,19 +278,79 @@ func Docheck(req *OrderRequest, consign_id uint64) bool {
 		return true
 	}
 
-	ret := dbw.CheckConsign(req, consign_id)
-	rds := rdw.Get(0)
+	var err error
+	var ccy uint32
+	var frozen uint64
+	if req.Otype&0x01 > 0 { // 卖出交易币，买入参考币
+		ccy = req.Symbol
+		frozen, err = StringMulUint64(req.Qty)
+		if HasError(err) {
+			return false
+		}
+	} else { // 卖出参考币，买入交易币
+		ccy = req.Reference
+		if req.Otype&0x08 > 0 { // 市价买入
+			frozen, err = StringMulUint64(req.Qty)
+			if HasError(err) {
+				return false
+			}
+		} else { // 其他
+			var price, qty decimal.Decimal
+			price, err = StringToDec(req.Price)
+			if HasError(err) {
+				return false
+			}
+			qty, err = StringToDec(req.Qty)
+			if HasError(err) {
+				return false
+			}
+			frozen = DecToUint64(price.Mul(qty)) + 1 // 安全区1
+		}
+	}
+
+	rds := rdw.Get(1)
 	if rds == nil {
 		return false
 	}
 	defer rds.Close()
 
-	if ret {
-		rds.Do("publish", fmt.Sprintf("orderstatus.%d", req.User_id), fmt.Sprintf("%d.%d", consign_id, Accepted))
-	} else {
-		rds.Do("publish", fmt.Sprintf("orderstatus.%d", req.User_id), fmt.Sprintf("%d.%d", consign_id, Rejected))
+CHECK_ORDER:
+	ret, err := redis.Int(ScriptCheckOrder.Do(rds,
+		fmt.Sprintf("sync.%d", req.User_id),
+		"oid_generator",
+		"fid_generator",
+		fmt.Sprintf("asset.%d.%d", req.User_id, ccy),
+		fmt.Sprintf("consign.%d.%d", req.User_id, consign_id),
+		fmt.Sprintf("ccyflow.%d.%d.%d.%d", req.User_id, ccy, FtypeBB, consign_id),
+		frozen,
+		time.Now()))
+
+	switch ret {
+	case -1:
+		err = ShowError(ERR_MAINTAINING.Build("en", consign_id))
+	case -2:
+		err = ShowError(ERR_CHECKING.Build("en", consign_id))
+	case -3: // load asset from mysql
+		err = dbw.LoadAsset(req.User_id, rds)
+		if err == nil {
+			goto CHECK_ORDER
+		}
+	case -4:
+		err = ShowError(ERR_INSUFFICIENT_ASSET.Build("en", consign_id))
 	}
-	return ret
+
+	rdq := rdw.Get(0)
+	if rdq == nil {
+		return false
+	}
+	defer rdq.Close()
+
+	if err == nil {
+		rdq.Do("publish", fmt.Sprintf("orderstatus.%d", req.User_id), fmt.Sprintf("%d.%d", consign_id, Accepted))
+	} else {
+		rdq.Do("publish", fmt.Sprintf("orderstatus.%d", req.User_id), fmt.Sprintf("%d.%d", consign_id, Rejected))
+	}
+	return err == nil
 }
 
 func worker() {

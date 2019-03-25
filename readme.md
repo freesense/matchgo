@@ -35,7 +35,6 @@
 - bid 成交编号
 - fid 资金流水编号
 - rid 关联业务单编号，默认为0
-- result 业务结果，默认为0
 
 ## Redis Key Define
 
@@ -52,7 +51,7 @@ asset.[acc].[ccy] | hash | 客户资产<li>balance 余额<li>frozen 冻结数 |
 consign.[acc].[oid] | hash | 委托单<li>time 委托时间<li>type 委托类型<li>channel 委托渠道<li>symbol 交易币<li>reference 参考币<li>price 委托价格<li>qty 委托数量<li>status 委托状态<li>deal_qty 成交数量<li>deal_amount 成交金额 |
 bargain.oid.[oid] | list | 单个委托单的全部成交编号 |
 bargain.[bid] | hash | 成交单<li>time 成交时间<li>price 成交价格<li>qty 成交数量<li>activate_oid 主动委托编号<li>proactive_oid 被动委托编号|
-ccyflow.[acc].[ccy].[type 资金流水类型].[rid].[result] | hash | 资金流水，不管资金发生业务是否成功，都必须记录该笔业务<li>fid 资金流水编号<li>time 发生时间<li>occur_amount 发生金额<li>pre_amount 发生前金额<li>post_amount 发生后金额 |
+ccyflow.[acc].[ccy].[type 资金流水类型].[rid] | hash | 资金流水，不管资金发生业务是否成功，都必须记录该笔业务<li>fid 资金流水编号<li>time 发生时间<li>occur_amount 发生金额<li>pre_amount 发生前金额<li>post_amount 发生后金额<li>result 业务结果，默认为0 |
 sync.[acc] | string | 同步标志<li>time 同步时间<li>sync 正在对账 |
 
 ## 数据格式和字典

@@ -119,13 +119,3 @@ func (self *RDSWrapper) Add_order(ord *OrderRequest, iPrice, iQty uint64) (consi
 
 	return
 }
-
-func (self *RDSWrapper) CheckConsign(req *OrderRequest, consign_id uint64) (ok bool) {
-	rds := self.Get(1)
-	if rds == nil {
-		return
-	}
-	defer rds.Close()
-
-	return true
-}

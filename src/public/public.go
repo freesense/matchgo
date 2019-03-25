@@ -39,6 +39,20 @@ func (t CcyflowType) String() string {
 	}
 }
 
+// 资金流水类型
+const (
+	FtypeBB = iota + 1
+	FtypeBBFE
+	FtypeCZ
+	FtypeOUT
+	FtypeOUTFEE
+	FtypeTRAN
+	FtypeFAKE
+	FtypeBONU
+	FtypeFEEBACK
+	FtypeUnknown = 0xffffffff
+)
+
 // 订单类型
 const (
 	OtypeLimitBid  = 0
