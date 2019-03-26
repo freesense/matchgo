@@ -24,12 +24,16 @@ var stopflag int32
 var max_price, max_qty uint64 // 允许下单的最大价格和最大数量，防止溢出
 var PriceRangeCheck bool
 var PriceRange float64
-var ScriptCheckOrder *redis.Script
+var ScriptCheckOrder, ScriptCheckCancel *redis.Script
 
-var ERR_INVALID_SYMBOL = NewMyError(-1005, "OID[%v]: invalid symbol: %d/%d", "OID[%v]: 无效symbol: %d/%d")
 var ERR_MAINTAINING = NewMyError(-1001, "OID[%v]: system maintaining, try later", "OID[%v]: 系统维护中，请稍后再试")
 var ERR_CHECKING = NewMyError(-1002, "OID[%v]: account checking, try later", "OID[%v]: 用户正在对账，请稍后再试")
 var ERR_INSUFFICIENT_ASSET = NewMyError(-1004, "OID[%v]: insufficient asset", "OID[%v]: 用户资产不足")
+var ERR_INVALID_SYMBOL = NewMyError(-1005, "OID[%v]: invalid symbol: %d/%d", "OID[%v]: 无效symbol: %d/%d")
+var ERR_CANCEL_CANCEL = NewMyError(-1006, "OID[%v]: unable to cancel cancel order", "OID[%v]: 撤单委托不可撤销")
+var ERR_CANCEL_FINISHED = NewMyError(-1007, "OID[%v]: order finished", "OID[%v]: 委托已结束")
+var ERR_CANCEL_CANCELED = NewMyError(-1008, "OID[%v]: cancel repeated", "OID[%v]: 不可重复撤单")
+var ERR_CANCEL_NOTEXIST = NewMyError(-1009, "OID[%v]: cancelled order not exists ", "OID[%v]: 待撤委托不存在")
 
 type Answer struct {
 	Errno      int
@@ -51,6 +55,12 @@ func InitScript(rdw *RDSWrapper) (err error) {
 		return
 	}
 	ScriptCheckOrder = redis.NewScript(0, c)
+
+	c, err = Decryptlua(factor, script_checkcancel)
+	if HasError(err) {
+		return
+	}
+	ScriptCheckCancel = redis.NewScript(0, c)
 
 	return nil
 }
@@ -263,7 +273,7 @@ func Donormal(req *OrderRequest) (ord *Order, err error) {
 			}
 		}
 
-		consign_id, err = rdw.Add_order(req, iPrice, iQty)
+		consign_id, err = Add_order(req, iPrice, iQty)
 		if err != nil {
 			return
 		}
@@ -273,57 +283,94 @@ func Donormal(req *OrderRequest) (ord *Order, err error) {
 	return
 }
 
+func Add_order(ord *OrderRequest, iPrice, iQty uint64) (consign_id uint64, err error) {
+	rds := rdw.Get(1)
+	if rds == nil {
+		return
+	}
+	defer rds.Close()
+
+	if consign_id, err = redis.Uint64(rds.Do("INCR", "oid_generator")); HasError(err) {
+		return
+	}
+	if _, err = redis.String(rds.Do("HMSET", fmt.Sprintf("consign.%d.%d", ord.User_id, consign_id),
+		"time", time.Now().Unix(),
+		"type", ord.Otype,
+		"channel", ord.Channel,
+		"symbol", ord.Symbol,
+		"reference", ord.Reference,
+		"price", iPrice,
+		"qty", iQty,
+		"status", 1,
+		"deal_qty", 0,
+		"deal_amount", 0,
+		"cid", 0, // 撤单id，一笔下单委托最多允许一笔撤单委托，撤单委托的委托编号填写在此处
+		"errcode", 0)); HasError(err) {
+		return
+	}
+
+	return
+}
+
 func Docheck(req *OrderRequest, consign_id uint64) bool {
 	if req.User_id == 0 || consign_id == 0 { // maintain request
 		return true
 	}
 
+	var ret int
 	var err error
-	var ccy uint32
-	var frozen uint64
-	if req.Otype&0x01 > 0 { // 卖出交易币，买入参考币
-		ccy = req.Symbol
-		frozen, err = StringMulUint64(req.Qty)
-		if HasError(err) {
-			return false
-		}
-	} else { // 卖出参考币，买入交易币
-		ccy = req.Reference
-		if req.Otype&0x08 > 0 { // 市价买入
+	var rds redis.Conn
+	if req.Otype&0x02 > 0 { // 撤单
+		ret, err = redis.Int(ScriptCheckOrder.Do(rds,
+			fmt.Sprintf("consign.%d.%d", req.User_id, req.Related_id),
+			fmt.Sprintf("consign.%d.%d", req.User_id, consign_id)))
+	} else {
+		var ccy uint32
+		var frozen uint64
+		if req.Otype&0x01 > 0 { // 卖出交易币，买入参考币
+			ccy = req.Symbol
 			frozen, err = StringMulUint64(req.Qty)
 			if HasError(err) {
 				return false
 			}
-		} else { // 其他
-			var price, qty decimal.Decimal
-			price, err = StringToDec(req.Price)
-			if HasError(err) {
-				return false
+		} else { // 卖出参考币，买入交易币
+			ccy = req.Reference
+			if req.Otype&0x08 > 0 { // 市价买入
+				frozen, err = StringMulUint64(req.Qty)
+				if HasError(err) {
+					return false
+				}
+			} else { // 其他
+				var price, qty decimal.Decimal
+				price, err = StringToDec(req.Price)
+				if HasError(err) {
+					return false
+				}
+				qty, err = StringToDec(req.Qty)
+				if HasError(err) {
+					return false
+				}
+				frozen = DecToUint64(price.Mul(qty)) + 1 // 安全区1
 			}
-			qty, err = StringToDec(req.Qty)
-			if HasError(err) {
-				return false
-			}
-			frozen = DecToUint64(price.Mul(qty)) + 1 // 安全区1
 		}
-	}
 
-	rds := rdw.Get(1)
-	if rds == nil {
-		return false
-	}
-	defer rds.Close()
+		rds = rdw.Get(1)
+		if rds == nil {
+			return false
+		}
+		defer rds.Close()
 
-CHECK_ORDER:
-	ret, err := redis.Int(ScriptCheckOrder.Do(rds,
-		fmt.Sprintf("sync.%d", req.User_id),
-		"oid_generator",
-		"fid_generator",
-		fmt.Sprintf("asset.%d.%d", req.User_id, ccy),
-		fmt.Sprintf("consign.%d.%d", req.User_id, consign_id),
-		fmt.Sprintf("ccyflow.%d.%d.%d.%d", req.User_id, ccy, FtypeBB, consign_id),
-		frozen,
-		time.Now()))
+	CHECK_ORDER:
+		ret, err = redis.Int(ScriptCheckOrder.Do(rds,
+			fmt.Sprintf("sync.%d", req.User_id),
+			"oid_generator",
+			"fid_generator",
+			fmt.Sprintf("asset.%d.%d", req.User_id, ccy),
+			fmt.Sprintf("consign.%d.%d", req.User_id, consign_id),
+			fmt.Sprintf("ccyflow.%d.%d.%d.%d", req.User_id, ccy, FtypeBB, consign_id),
+			frozen,
+			time.Now()))
+	}
 
 	switch ret {
 	case 0: // success
@@ -342,16 +389,12 @@ CHECK_ORDER:
 		err = ShowError(ERR_UNKNOWN.Build("en", consign_id))
 	}
 
-	rdq := rdw.Get(0)
-	if rdq == nil {
-		return false
-	}
-	defer rdq.Close()
+	rds.Do("select", "0")
 
 	if err == nil {
-		rdq.Do("publish", fmt.Sprintf("orderstatus.%d", req.User_id), fmt.Sprintf("%d.%d", consign_id, Accepted))
+		rds.Do("publish", fmt.Sprintf("orderstatus.%d", req.User_id), fmt.Sprintf("%d.%d", consign_id, Accepted))
 	} else {
-		rdq.Do("publish", fmt.Sprintf("orderstatus.%d", req.User_id), fmt.Sprintf("%d.%d", consign_id, Rejected))
+		rds.Do("publish", fmt.Sprintf("orderstatus.%d", req.User_id), fmt.Sprintf("%d.%d", consign_id, Rejected))
 	}
 	return err == nil
 }
@@ -423,14 +466,7 @@ func worker() {
 					if ord != nil {
 						// 订单购买力检查
 						ok := Docheck(req, ord.Oid)
-						if !ok {
-							rds := rdw.Get(0)
-							if rds == nil {
-								return
-							}
-							defer rds.Close()
-							rds.Do("publish", fmt.Sprintf("orderstatus.%d", ord.User_id), fmt.Sprintf("%d.%d", ord.Oid, Rejected))
-						} else { // send to core
+						if ok { // send to core
 							buf := &bytes.Buffer{}
 							binary.Write(buf, binary.LittleEndian, ord)
 							_, err := coreSock.SendMessage("", buf)

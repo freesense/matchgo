@@ -1,7 +1,6 @@
 package public
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/garyburd/redigo/redis"
@@ -91,32 +90,4 @@ func (self *RDSWrapper) GetPubSub() *redis.PubSubConn {
 			}
 		}
 	}
-}
-
-func (self *RDSWrapper) Add_order(ord *OrderRequest, iPrice, iQty uint64) (consign_id uint64, err error) {
-	rds := self.Get(1)
-	if rds == nil {
-		return
-	}
-	defer rds.Close()
-
-	if consign_id, err = redis.Uint64(rds.Do("INCR", "oid_generator")); HasError(err) {
-		return
-	}
-	if _, err = redis.String(rds.Do("HMSET", fmt.Sprintf("consign.%d.%d", ord.User_id, consign_id),
-		"time", time.Now().Unix(),
-		"type", ord.Otype,
-		"channel", ord.Channel,
-		"symbol", ord.Symbol,
-		"reference", ord.Reference,
-		"price", iPrice,
-		"qty", iQty,
-		"status", 1,
-		"deal_qty", 0,
-		"deal_amount", 0,
-		"errcode", 0)); HasError(err) {
-		return
-	}
-
-	return
 }
