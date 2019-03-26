@@ -8,7 +8,7 @@ import (
 	"github.com/larspensjo/config"
 )
 
-var ERR_RDS_CONN = NewMyError("redis connector failed: db[%d]", "无法获得redis连接: db[%d]")
+var ERR_RDS_CONN = NewMyError(-9000, "redis connector failed: db[%d]", "无法获得redis连接: db[%d]")
 
 type RDSWrapper struct {
 	pool    *redis.Pool
@@ -113,7 +113,8 @@ func (self *RDSWrapper) Add_order(ord *OrderRequest, iPrice, iQty uint64) (consi
 		"qty", iQty,
 		"status", 1,
 		"deal_qty", 0,
-		"deal_amount", 0)); HasError(err) {
+		"deal_amount", 0,
+		"errcode", 0)); HasError(err) {
 		return
 	}
 

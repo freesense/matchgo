@@ -11,6 +11,8 @@ import (
 
 var config_s2t = "./s2t.json"
 var s2t *opencc.Converter
+var MyErrors map[int]*MyError
+var ERR_UNKNOWN = NewMyError(-1000, "OID[%v]: unknown error", "OID[%v]: 未知错误")
 
 func Println(v ...interface{}) {
 	_, file, line, _ := runtime.Caller(1)
@@ -39,16 +41,19 @@ func HasError(err error, v ...interface{}) bool {
 }
 
 type MyError struct {
+	errcode             int
 	enFmt, cnFmt, twFmt string
 }
 
-func NewMyError(enFormat, cnFormat string) *MyError {
+func NewMyError(errcode int, enFormat, cnFormat string) *MyError {
 	var obj = new(MyError)
+	obj.errcode = errcode
 	obj.enFmt = enFormat
 	obj.cnFmt = cnFormat
 	s2t = opencc.NewConverter(config_s2t)
 	defer s2t.Close()
 	obj.twFmt = s2t.Convert(obj.cnFmt)
+	MyErrors[errcode] = obj
 	return obj
 }
 

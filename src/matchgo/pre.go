@@ -26,10 +26,10 @@ var PriceRangeCheck bool
 var PriceRange float64
 var ScriptCheckOrder *redis.Script
 
-var ERR_INVALID_SYMBOL = NewMyError("consign_id: %v, invalid symbol%d/%d", "委托单: %v, 无效symbol: %d/%d")
-var ERR_MAINTAINING = NewMyError("OID[%v]: system maintaining, try later", "OID[%v]: 系统维护中，请稍后再试")
-var ERR_CHECKING = NewMyError("OID[%v]: account checking, try later", "OID[%v]: 用户正在对账，请稍后再试")
-var ERR_INSUFFICIENT_ASSET = NewMyError("OID[%v]: insufficient asset", "OID[%v]: 用户资产不足")
+var ERR_INVALID_SYMBOL = NewMyError(-1005, "OID[%v]: invalid symbol: %d/%d", "OID[%v]: 无效symbol: %d/%d")
+var ERR_MAINTAINING = NewMyError(-1001, "OID[%v]: system maintaining, try later", "OID[%v]: 系统维护中，请稍后再试")
+var ERR_CHECKING = NewMyError(-1002, "OID[%v]: account checking, try later", "OID[%v]: 用户正在对账，请稍后再试")
+var ERR_INSUFFICIENT_ASSET = NewMyError(-1004, "OID[%v]: insufficient asset", "OID[%v]: 用户资产不足")
 
 type Answer struct {
 	Errno      int
@@ -326,17 +326,20 @@ CHECK_ORDER:
 		time.Now()))
 
 	switch ret {
-	case -1:
+	case 0: // success
+	case -1001:
 		err = ShowError(ERR_MAINTAINING.Build("en", consign_id))
-	case -2:
+	case -1002:
 		err = ShowError(ERR_CHECKING.Build("en", consign_id))
-	case -3: // load asset from mysql
+	case -1003: // load asset from mysql
 		err = dbw.LoadAsset(req.User_id, rds)
 		if err == nil {
 			goto CHECK_ORDER
 		}
-	case -4:
+	case -1004:
 		err = ShowError(ERR_INSUFFICIENT_ASSET.Build("en", consign_id))
+	default:
+		err = ShowError(ERR_UNKNOWN.Build("en", consign_id))
 	}
 
 	rdq := rdw.Get(0)
